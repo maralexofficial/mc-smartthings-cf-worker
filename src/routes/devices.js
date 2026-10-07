@@ -1,5 +1,12 @@
 import { getDevices, getRooms } from "../smartthings.js";
 
+function normalizeLabel(label) {
+  return label
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-");
+}
+
 function getCapability(component, capabilityId) {
   return component?.capabilities?.find(
     capability => capability.id === capabilityId
@@ -72,7 +79,6 @@ export async function devices(request, env) {
 
   const smartThingsDevices = result.data?.items || [];
 
-  // Alle verwendeten Location-IDs ermitteln
   const locationIds = [
     ...new Set(
       smartThingsDevices
@@ -81,7 +87,6 @@ export async function devices(request, env) {
     )
   ];
 
-  // Räume für alle Locations laden
   const roomsById = new Map();
 
   for (const locationId of locationIds) {
@@ -94,16 +99,17 @@ export async function devices(request, env) {
     }
   }
 
-  // Geräte als MacroDroid-freundliches Dictionary aufbauen
   const resultData = {};
   const labelCounts = {};
 
   for (const device of smartThingsDevices) {
     const normalized = normalizeDevice(device, roomsById);
 
-    const baseKey = normalized.label
-      .trim()
-      .toLowerCase();
+    const baseKey = normalizeLabel(normalized.label || "");
+
+    if (!baseKey) {
+      continue;
+    }
 
     const count = labelCounts[baseKey] || 0;
 

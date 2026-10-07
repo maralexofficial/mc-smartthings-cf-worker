@@ -1,5 +1,41 @@
 import { getDevices, sendCommand } from "../smartthings.js";
 
+function normalizeLabel(label) {
+  return label
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-");
+}
+
+function buildDeviceMap(devices) {
+  const deviceMap = {};
+  const labelCounts = {};
+
+  for (const device of devices) {
+    const baseKey = normalizeLabel(device.label || "");
+
+    if (!baseKey) {
+      continue;
+    }
+
+    const count = labelCounts[baseKey] || 0;
+
+    const key =
+      count === 0
+        ? baseKey
+        : `${baseKey}-${count}`;
+
+    labelCounts[baseKey] = count + 1;
+
+    deviceMap[key] = device;
+
+    // SmartThings-ID ebenfalls als direkter Schlüssel
+    deviceMap[device.deviceId] = device;
+  }
+
+  return deviceMap;
+}
+
 export async function command(request, env) {
   let body;
 
@@ -36,7 +72,6 @@ export async function command(request, env) {
     );
   }
 
-  // Aktuelle Geräteliste von SmartThings laden
   const devicesResult = await getDevices(env);
 
   if (!devicesResult.ok) {
@@ -57,33 +92,9 @@ export async function command(request, env) {
 
   const devices = devicesResult.data?.items || [];
 
-  // MacroDroid-Key auf das richtige Gerät auflösen
-  const labelCounts = {};
-  let selectedDevice = null;
+  const deviceMap = buildDeviceMap(devices);
 
-  for (const device of devices) {
-    const baseKey = device.label
-      ?.trim()
-      .toLowerCase();
-
-    if (!baseKey) {
-      continue;
-    }
-
-    const count = labelCounts[baseKey] || 0;
-
-    const key =
-      count === 0
-        ? baseKey
-        : `${baseKey}-${count}`;
-
-    labelCounts[baseKey] = count + 1;
-
-    if (key === deviceKey) {
-      selectedDevice = device;
-      break;
-    }
-  }
+  const selectedDevice = deviceMap[deviceKey];
 
   if (!selectedDevice) {
     return Response.json(
@@ -99,7 +110,6 @@ export async function command(request, env) {
     );
   }
 
-  // SmartThings Command
   const commands = [
     {
       component: body.component || "main",
@@ -133,8 +143,11 @@ export async function command(request, env) {
   return Response.json({
     success: true,
     data: {
-      device: deviceKey,
-      id: selectedDevice.deviceId,
+      device: {
+        key: normalizeLabel(selectedDevice.label),
+        id: selectedDevice.deviceId,
+        label: selectedDevice.label
+      },
       command: commandName,
       result: result.data
     },
