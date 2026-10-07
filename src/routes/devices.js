@@ -38,7 +38,7 @@ function normalizeDevice(device) {
   return {
     id: device.deviceId,
     label: device.label,
-    type: device.categories?.[0]?.name || null,
+    type: main?.categories?.[0]?.name || null,
 
     online,
 
