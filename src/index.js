@@ -1,6 +1,7 @@
 import { authenticate } from "./auth.js";
 import { devices } from "./routes/devices.js";
 import { command } from "./routes/command.js";
+import { status } from "./routes/status.js";
 
 export default {
   async fetch(request, env) {
@@ -14,6 +15,14 @@ export default {
 
     if (url.pathname === "/devices" && request.method === "GET") {
       return devices(request, env);
+    }
+
+    const statusMatch = url.pathname.match(
+      /^\/devices\/([^/]+)\/status$/
+    );
+
+    if (statusMatch && request.method === "GET") {
+      return status(request, env, statusMatch[1]);
     }
 
     if (url.pathname === "/command" && request.method === "POST") {

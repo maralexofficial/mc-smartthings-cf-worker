@@ -31,6 +31,10 @@ export async function getDevices(env) {
   return request("/devices?includeStatus=true", env);
 }
 
+export async function getDeviceStatus(deviceId, env) {
+  return request(`/devices/${deviceId}/status`, env);
+}
+
 export async function sendCommand(deviceId, commands, env) {
   return request(`/devices/${deviceId}/commands`, env, {
     method: "POST",
