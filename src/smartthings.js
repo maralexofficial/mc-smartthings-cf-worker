@@ -35,6 +35,10 @@ export async function getDeviceStatus(deviceId, env) {
   return request(`/devices/${deviceId}/status`, env);
 }
 
+export async function getRooms(locationId, env) {
+  return request(`/locations/${locationId}/rooms`, env);
+}
+
 export async function sendCommand(deviceId, commands, env) {
   return request(`/devices/${deviceId}/commands`, env, {
     method: "POST",

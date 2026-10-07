@@ -1,4 +1,4 @@
-import { getDevices } from "../smartthings.js";
+import { getDevices, getRooms } from "../smartthings.js";
 
 function getCapability(component, capabilityId) {
   return component?.capabilities?.find(
@@ -6,12 +6,7 @@ function getCapability(component, capabilityId) {
   );
 }
 
-function getStatus(component, capabilityId, statusKey) {
-  const capability = getCapability(component, capabilityId);
-  return capability?.status?.[statusKey]?.value ?? null;
-}
-
-function normalizeDevice(device) {
+function normalizeDevice(device, roomsById) {
   const main = device.components?.find(
     component => component.id === "main"
   );
@@ -22,23 +17,21 @@ function normalizeDevice(device) {
     main,
     "colorTemperature"
   );
-  const healthCapability = getCapability(main, "healthCheck");
-
-  const deviceStatus = getStatus(
-    main,
-    "healthCheck",
-    "healthStatus"
-  );
 
   const online =
     main?.capabilities
       ?.find(capability => capability.id === "healthCheck")
       ?.status?.["DeviceWatch-DeviceStatus"]?.value === "online";
 
+  const room = roomsById.get(device.roomId);
+
   return {
     id: device.deviceId,
     label: device.label,
     type: main?.categories?.[0]?.name || null,
+
+    room: room?.name || null,
+    roomId: device.roomId || null,
 
     online,
 
@@ -77,11 +70,56 @@ export async function devices(request, env) {
     );
   }
 
-  const devices = (result.data?.items || []).map(normalizeDevice);
+  const smartThingsDevices = result.data?.items || [];
+
+  // Alle verwendeten Location-IDs ermitteln
+  const locationIds = [
+    ...new Set(
+      smartThingsDevices
+        .map(device => device.locationId)
+        .filter(Boolean)
+    )
+  ];
+
+  // Räume für alle Locations laden
+  const roomsById = new Map();
+
+  for (const locationId of locationIds) {
+    const roomsResult = await getRooms(locationId, env);
+
+    if (roomsResult.ok) {
+      for (const room of roomsResult.data?.items || []) {
+        roomsById.set(room.roomId, room);
+      }
+    }
+  }
+
+  // Geräte als MacroDroid-freundliches Dictionary aufbauen
+  const resultData = {};
+  const labelCounts = {};
+
+  for (const device of smartThingsDevices) {
+    const normalized = normalizeDevice(device, roomsById);
+
+    const baseKey = normalized.label
+      .trim()
+      .toLowerCase();
+
+    const count = labelCounts[baseKey] || 0;
+
+    const key =
+      count === 0
+        ? baseKey
+        : `${baseKey}-${count}`;
+
+    labelCounts[baseKey] = count + 1;
+
+    resultData[key] = normalized;
+  }
 
   return Response.json({
     success: true,
-    data: devices,
+    data: resultData,
     error: null
   });
 }
