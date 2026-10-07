@@ -28,7 +28,7 @@ async function request(path, env, options = {}) {
 }
 
 export async function getDevices(env) {
-  return request("/devices", env);
+  return request("/devices?includeStatus=true", env);
 }
 
 export async function sendCommand(deviceId, commands, env) {
