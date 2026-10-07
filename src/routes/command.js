@@ -1,4 +1,4 @@
-import { sendCommand } from "../smartthings.js";
+import { getDevices, sendCommand } from "../smartthings.js";
 
 export async function command(request, env) {
   let body;
@@ -12,51 +12,104 @@ export async function command(request, env) {
         data: null,
         error: {
           code: "INVALID_JSON",
-          message: "Request body is not valid JSON"
+          message: "Request body must be valid JSON"
         }
       },
       { status: 400 }
     );
   }
 
-  if (!body.deviceId) {
+  const deviceKey = body.device;
+  const commandName = body.command;
+
+  if (!deviceKey || !commandName) {
     return Response.json(
       {
         success: false,
         data: null,
         error: {
-          code: "MISSING_DEVICE_ID",
-          message: "deviceId is required"
+          code: "INVALID_REQUEST",
+          message: "device and command are required"
         }
       },
       { status: 400 }
     );
   }
 
-  if (!body.command) {
+  // Aktuelle Geräteliste von SmartThings laden
+  const devicesResult = await getDevices(env);
+
+  if (!devicesResult.ok) {
     return Response.json(
       {
         success: false,
         data: null,
         error: {
-          code: "MISSING_COMMAND",
-          message: "command is required"
+          code: "SMARTTHINGS_ERROR",
+          message: "Could not load devices from SmartThings",
+          status: devicesResult.status,
+          details: devicesResult.data
         }
       },
-      { status: 400 }
+      { status: devicesResult.status }
     );
   }
 
+  const devices = devicesResult.data?.items || [];
+
+  // MacroDroid-Key auf das richtige Gerät auflösen
+  const labelCounts = {};
+  let selectedDevice = null;
+
+  for (const device of devices) {
+    const baseKey = device.label
+      ?.trim()
+      .toLowerCase();
+
+    if (!baseKey) {
+      continue;
+    }
+
+    const count = labelCounts[baseKey] || 0;
+
+    const key =
+      count === 0
+        ? baseKey
+        : `${baseKey}-${count}`;
+
+    labelCounts[baseKey] = count + 1;
+
+    if (key === deviceKey) {
+      selectedDevice = device;
+      break;
+    }
+  }
+
+  if (!selectedDevice) {
+    return Response.json(
+      {
+        success: false,
+        data: null,
+        error: {
+          code: "DEVICE_NOT_FOUND",
+          message: `Device '${deviceKey}' not found`
+        }
+      },
+      { status: 404 }
+    );
+  }
+
+  // SmartThings Command
   const commands = [
     {
       component: body.component || "main",
       capability: "switch",
-      command: body.command
+      command: commandName
     }
   ];
 
   const result = await sendCommand(
-    body.deviceId,
+    selectedDevice.deviceId,
     commands,
     env
   );
@@ -68,7 +121,7 @@ export async function command(request, env) {
         data: null,
         error: {
           code: "SMARTTHINGS_ERROR",
-          message: "SmartThings API request failed",
+          message: "SmartThings command failed",
           status: result.status,
           details: result.data
         }
@@ -79,7 +132,12 @@ export async function command(request, env) {
 
   return Response.json({
     success: true,
-    data: result.data,
+    data: {
+      device: deviceKey,
+      id: selectedDevice.deviceId,
+      command: commandName,
+      result: result.data
+    },
     error: null
   });
 }
