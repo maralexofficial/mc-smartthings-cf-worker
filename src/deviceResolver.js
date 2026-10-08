@@ -23,12 +23,18 @@ function getBaseKey(device, roomsById) {
   return `${roomKey}-${labelKey}`;
 }
 
-export function buildDeviceMap(devices, roomsById) {
+export function buildDeviceMap(
+  devices,
+  roomsById
+) {
   const deviceMap = {};
   const groups = new Map();
 
   for (const device of devices) {
-    const baseKey = getBaseKey(device, roomsById);
+    const baseKey = getBaseKey(
+      device,
+      roomsById
+    );
 
     if (!groups.has(baseKey)) {
       groups.set(baseKey, []);
@@ -39,22 +45,23 @@ export function buildDeviceMap(devices, roomsById) {
 
   for (const [baseKey, group] of groups) {
     group.sort((a, b) =>
-      a.deviceId.localeCompare(b.deviceId)
+      a.deviceId.localeCompare(
+        b.deviceId
+      )
     );
 
     if (group.length === 1) {
-      deviceMap[baseKey] = group[0];
+      deviceMap[baseKey] =
+        group[0];
     } else {
-      group.forEach((device, index) => {
-        deviceMap[
-          `${baseKey}-${index + 1}`
-        ] = device;
-      });
+      group.forEach(
+        (device, index) => {
+          deviceMap[
+            `${baseKey}-${index + 1}`
+          ] = device;
+        }
+      );
     }
-  }
-
-  for (const device of devices) {
-    deviceMap[device.deviceId] = device;
   }
 
   return deviceMap;
@@ -65,10 +72,21 @@ export function findDevice(
   roomsById,
   deviceKey
 ) {
-  const deviceMap = buildDeviceMap(
-    devices,
-    roomsById
-  );
+  const directDevice =
+    devices.find(
+      device =>
+        device.deviceId === deviceKey
+    );
+
+  if (directDevice) {
+    return directDevice;
+  }
+
+  const deviceMap =
+    buildDeviceMap(
+      devices,
+      roomsById
+    );
 
   return deviceMap[deviceKey] || null;
 }
