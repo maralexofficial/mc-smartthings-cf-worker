@@ -28,23 +28,70 @@ async function request(path, env, options = {}) {
 }
 
 export async function getDevices(env) {
-  return request("/devices?includeStatus=true", env);
+  return request(
+    "/devices?includeStatus=true",
+    env
+  );
 }
 
 export async function getDeviceStatus(deviceId, env) {
-  return request(`/devices/${deviceId}/status`, env);
+  return request(
+    `/devices/${deviceId}/status`,
+    env
+  );
 }
 
 export async function getRooms(locationId, env) {
-  return request(`/locations/${locationId}/rooms`, env);
+  return request(
+    `/locations/${locationId}/rooms`,
+    env
+  );
 }
 
-export async function sendCommand(deviceId, commands, env) {
-  return request(`/devices/${deviceId}/commands`, env, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(commands)
-  });
+export async function getRoomsByDevices(devices, env) {
+  const locationIds = [
+    ...new Set(
+      devices
+        .map(device => device.locationId)
+        .filter(Boolean)
+    )
+  ];
+
+  const roomsById = new Map();
+
+  for (const locationId of locationIds) {
+    const roomsResult = await getRooms(
+      locationId,
+      env
+    );
+
+    if (roomsResult.ok) {
+      for (const room of roomsResult.data?.items || []) {
+        roomsById.set(
+          room.roomId,
+          room
+        );
+      }
+    }
+  }
+
+  return roomsById;
+}
+
+export async function sendCommand(
+  deviceId,
+  commands,
+  env
+) {
+  return request(
+    `/devices/${deviceId}/commands`,
+    env,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(commands)
+    }
+  );
 }
