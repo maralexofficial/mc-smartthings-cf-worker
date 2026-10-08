@@ -1,4 +1,4 @@
-import { getDevices, getDeviceStatus } from "../smartthings.js";
+import { getDevices, getRooms, getDeviceStatus } from "../smartthings.js";
 
 function normalizeLabel(label) {
   return label
@@ -7,38 +7,61 @@ function normalizeLabel(label) {
     .replace(/\s+/g, "-");
 }
 
-function getCapability(component, capabilityId) {
-  return component?.capabilities?.find(
-    capability => capability.id === capabilityId
+function findDevice(devices, roomsById, deviceKey) {
+  // Direkte SmartThings-ID
+  const directDevice = devices.find(
+    device => device.deviceId === deviceKey
   );
-}
 
-function findDevice(devices, deviceKey) {
-  const labelCounts = {};
+  if (directDevice) {
+    return directDevice;
+  }
+
+  // Geräte nach Raum + Label gruppieren
+  const groups = new Map();
 
   for (const device of devices) {
-    // Direkte SmartThings-ID
-    if (device.deviceId === deviceKey) {
-      return device;
+    const room = roomsById.get(device.roomId);
+
+    const roomKey = normalizeLabel(
+      room?.name || "unbekannt"
+    );
+
+    const labelKey = normalizeLabel(
+      device.label || "gerät"
+    );
+
+    const baseKey = `${roomKey}-${labelKey}`;
+
+    if (!groups.has(baseKey)) {
+      groups.set(baseKey, []);
     }
 
-    const baseKey = normalizeLabel(device.label || "");
+    groups.get(baseKey).push(device);
+  }
 
-    if (!baseKey) {
+  // Gleiche Geräte-ID-Sortierung wie in /devices
+  for (const [baseKey, group] of groups) {
+    group.sort((a, b) =>
+      a.deviceId.localeCompare(b.deviceId)
+    );
+
+    // Nur ein Gerät → keine Nummer
+    if (group.length === 1) {
+      if (baseKey === deviceKey) {
+        return group[0];
+      }
+
       continue;
     }
 
-    const count = labelCounts[baseKey] || 0;
+    // Mehrere gleiche Geräte → -1, -2, -3 ...
+    for (let index = 0; index < group.length; index++) {
+      const key = `${baseKey}-${index + 1}`;
 
-    const key =
-      count === 0
-        ? baseKey
-        : `${baseKey}-${count}`;
-
-    labelCounts[baseKey] = count + 1;
-
-    if (key === deviceKey) {
-      return device;
+      if (key === deviceKey) {
+        return group[index];
+      }
     }
   }
 
@@ -83,7 +106,7 @@ function normalizeStatus(device, statusData, roomName) {
 }
 
 export async function status(request, env, deviceKey) {
-  // Geräteliste laden
+  // Geräte von SmartThings laden
   const devicesResult = await getDevices(env);
 
   if (!devicesResult.ok) {
@@ -104,8 +127,37 @@ export async function status(request, env, deviceKey) {
 
   const devices = devicesResult.data?.items || [];
 
-  // Key oder SmartThings-ID auflösen
-  const device = findDevice(devices, deviceKey);
+  // Alle verwendeten Locations ermitteln
+  const locationIds = [
+    ...new Set(
+      devices
+        .map(device => device.locationId)
+        .filter(Boolean)
+    )
+  ];
+
+  // Räume laden
+  const roomsById = new Map();
+
+  for (const locationId of locationIds) {
+    const roomsResult = await getRooms(
+      locationId,
+      env
+    );
+
+    if (roomsResult.ok) {
+      for (const room of roomsResult.data?.items || []) {
+        roomsById.set(room.roomId, room);
+      }
+    }
+  }
+
+  // Gerät über Key oder SmartThings-ID finden
+  const device = findDevice(
+    devices,
+    roomsById,
+    deviceKey
+  );
 
   if (!device) {
     return Response.json(
@@ -121,32 +173,7 @@ export async function status(request, env, deviceKey) {
     );
   }
 
-  // Räume laden
-  let roomName = null;
-
-  if (device.locationId) {
-    const roomsResult = await fetch(
-      `https://api.smartthings.com/v1/locations/${device.locationId}/rooms`,
-      {
-        headers: {
-          "Authorization": `Bearer ${env.ST_ACCESS_TOKEN}`,
-          "Accept": "application/json"
-        }
-      }
-    );
-
-    if (roomsResult.ok) {
-      const roomsData = await roomsResult.json();
-
-      const room = roomsData.items?.find(
-        room => room.roomId === device.roomId
-      );
-
-      roomName = room?.name || null;
-    }
-  }
-
-  // Aktuellen Status holen
+  // Aktuellen Status direkt von SmartThings holen
   const result = await getDeviceStatus(
     device.deviceId,
     env
@@ -168,10 +195,14 @@ export async function status(request, env, deviceKey) {
     );
   }
 
+  const room = roomsById.get(
+    device.roomId
+  );
+
   const normalized = normalizeStatus(
     device,
     result.data,
-    roomName
+    room?.name
   );
 
   return Response.json({

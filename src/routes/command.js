@@ -1,4 +1,4 @@
-import { getDevices, sendCommand } from "../smartthings.js";
+import { getDevices, getRooms, sendCommand } from "../smartthings.js";
 
 function normalizeLabel(label) {
   return label
@@ -7,29 +7,43 @@ function normalizeLabel(label) {
     .replace(/\s+/g, "-");
 }
 
-function buildDeviceMap(devices) {
+function buildDeviceMap(devices, roomsById) {
   const deviceMap = {};
-  const labelCounts = {};
+  const groups = new Map();
 
+  // Geräte nach Raum + Label gruppieren
   for (const device of devices) {
-    const baseKey = normalizeLabel(device.label || "");
+    const room = roomsById.get(device.roomId);
 
-    if (!baseKey) {
-      continue;
+    const roomKey = normalizeLabel(room?.name || "unbekannt");
+    const labelKey = normalizeLabel(device.label || "gerät");
+
+    const baseKey = `${roomKey}-${labelKey}`;
+
+    if (!groups.has(baseKey)) {
+      groups.set(baseKey, []);
     }
 
-    const count = labelCounts[baseKey] || 0;
+    groups.get(baseKey).push(device);
+  }
 
-    const key =
-      count === 0
-        ? baseKey
-        : `${baseKey}-${count}`;
+  // Gleiche Gruppen stabil nach SmartThings-ID sortieren
+  for (const [baseKey, group] of groups) {
+    group.sort((a, b) =>
+      a.deviceId.localeCompare(b.deviceId)
+    );
 
-    labelCounts[baseKey] = count + 1;
+    if (group.length === 1) {
+      deviceMap[baseKey] = group[0];
+    } else {
+      group.forEach((device, index) => {
+        deviceMap[`${baseKey}-${index + 1}`] = device;
+      });
+    }
+  }
 
-    deviceMap[key] = device;
-
-    // SmartThings-ID ebenfalls als direkter Schlüssel
+  // SmartThings-ID zusätzlich immer direkt akzeptieren
+  for (const device of devices) {
     deviceMap[device.deviceId] = device;
   }
 
@@ -92,7 +106,32 @@ export async function command(request, env) {
 
   const devices = devicesResult.data?.items || [];
 
-  const deviceMap = buildDeviceMap(devices);
+  // Locations ermitteln
+  const locationIds = [
+    ...new Set(
+      devices
+        .map(device => device.locationId)
+        .filter(Boolean)
+    )
+  ];
+
+  // Räume laden
+  const roomsById = new Map();
+
+  for (const locationId of locationIds) {
+    const roomsResult = await getRooms(locationId, env);
+
+    if (roomsResult.ok) {
+      for (const room of roomsResult.data?.items || []) {
+        roomsById.set(room.roomId, room);
+      }
+    }
+  }
+
+  const deviceMap = buildDeviceMap(
+    devices,
+    roomsById
+  );
 
   const selectedDevice = deviceMap[deviceKey];
 
@@ -140,14 +179,15 @@ export async function command(request, env) {
     );
   }
 
+  const room = roomsById.get(selectedDevice.roomId);
+
   return Response.json({
     success: true,
     data: {
-      device: {
-        key: normalizeLabel(selectedDevice.label),
-        id: selectedDevice.deviceId,
-        label: selectedDevice.label
-      },
+      device: deviceKey,
+      id: selectedDevice.deviceId,
+      label: selectedDevice.label,
+      room: room?.name || null,
       command: commandName,
       result: result.data
     },

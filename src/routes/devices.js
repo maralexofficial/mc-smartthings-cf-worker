@@ -99,28 +99,49 @@ export async function devices(request, env) {
     }
   }
 
+  // Geräte normalisieren
+  const normalizedDevices = smartThingsDevices.map(device => ({
+    device,
+    normalized: normalizeDevice(device, roomsById)
+  }));
+
+  // Nach Raum + Label gruppieren
+  const groups = new Map();
+
+  for (const item of normalizedDevices) {
+    const roomKey = normalizeLabel(item.normalized.room || "unbekannt");
+    const labelKey = normalizeLabel(item.normalized.label || "gerät");
+
+    const baseKey = `${roomKey}-${labelKey}`;
+
+    if (!groups.has(baseKey)) {
+      groups.set(baseKey, []);
+    }
+
+    groups.get(baseKey).push(item);
+  }
+
   const resultData = {};
-  const labelCounts = {};
 
-  for (const device of smartThingsDevices) {
-    const normalized = normalizeDevice(device, roomsById);
+  // Jede Gruppe separat behandeln
+  for (const [baseKey, items] of groups) {
 
-    const baseKey = normalizeLabel(normalized.label || "");
+    // Stabile Reihenfolge anhand der SmartThings-ID
+    items.sort((a, b) =>
+      a.normalized.id.localeCompare(b.normalized.id)
+    );
 
-    if (!baseKey) {
+    if (items.length === 1) {
+      // Kein Duplikat → keine Nummer
+      resultData[baseKey] = items[0].normalized;
       continue;
     }
 
-    const count = labelCounts[baseKey] || 0;
-
-    const key =
-      count === 0
-        ? baseKey
-        : `${baseKey}-${count}`;
-
-    labelCounts[baseKey] = count + 1;
-
-    resultData[key] = normalized;
+    // Mehrere gleiche Geräte → nummerieren
+    items.forEach((item, index) => {
+      const key = `${baseKey}-${index + 1}`;
+      resultData[key] = item.normalized;
+    });
   }
 
   return Response.json({
